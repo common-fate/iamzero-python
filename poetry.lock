@@ -85,7 +85,7 @@ crt = ["awscrt (==0.11.11)"]
 name = "bump2version"
 version = "1.0.1"
 description = "Version-bump your software with a single command!"
-category = "main"
+category = "dev"
 optional = false
 python-versions = ">=3.5"
 
@@ -375,7 +375,7 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=1.2.3)", "pytest-flake8", "pyt
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.6.2"
-content-hash = "798fe09bf65b5a37d90cb7978299f01401fc4fa7ea51f3b15145970ea9e12b96"
+content-hash = "7b1bfdc79405d59de89e166d4a5343670e389f67288a0c017b324cf17ff262bb"
 
 [metadata.files]
 appdirs = [
