@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "iamzero"
+version = "0.0.3" 
+description = "iam-zero least-privilege instrumentation client for Python"
+authors = ["Chris Norman <chris@exponentlabs.io>"]
+license = "Apache License 2.0"
+
+[tool.poetry.dependencies]
+python = "^3.6.2"
+requests = "^2.25.1"
+wrapt = "^1.12.1"
+statsd = "^3.3.0"
+bump2version = "^1.0.1"
+
+[tool.poetry.dev-dependencies]
+black = "^21.4b2"
+boto3 = "^1.17.62"
+botocore = "^1.20.62"
+pytest = "^6.2.3"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
