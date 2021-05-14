@@ -2,8 +2,17 @@
 name = "iamzero"
 version = "0.0.3" 
 description = "iam-zero least-privilege instrumentation client for Python"
+readme = "README.md"
+homepage = "https://iamzero.dev"
+documentation = "https://iamzero.dev/docs/getting-started"
 authors = ["Common Fate <hello@commonfate.io>"]
 license = "Apache License 2.0"
+classifiers = [
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers"
+]
 
 [tool.poetry.dependencies]
 python = "^3.6.2"
