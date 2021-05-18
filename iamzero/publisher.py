@@ -214,6 +214,15 @@ class Publisher:
             "duration": (time.time() - start) * 1000,
             "metadata": metadata,
         }
+
+        if 200 <= status_code < 300 and not self.config["quiet"]:
+            alert_ids = body["alertIDs"]
+            if alert_ids is not None:
+                for alert_id in alert_ids:
+                    logger.info(
+                        f"IAM Zero permission recommendations are available at {self.config['url']}/alerts/{alert_id}"
+                    )
+
         self.log("enqueuing response = %s", resp)
         if self.block_on_response:
             self.responses.put(resp)
