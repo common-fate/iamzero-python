@@ -11,6 +11,7 @@ CONFIG_DEFAULT_VALUES = {
     "url": "https://app.iamzero.dev",
     "debug": False,
     "token": None,
+    "quiet": False,
     "max_batch_size": 100,
     "send_frequency": 0.25,
     "user_agent_addition": "",
