@@ -19,6 +19,13 @@ from iamzero.version import VERSION
 logger = configure_root_logger(__name__)
 
 
+class NoIdentityException(Exception):
+    """
+    Raised when messages are attempted to be dispatched
+    without an associated identity
+    """
+
+
 class Publisher:
     def __init__(
         self,
@@ -112,14 +119,16 @@ class Publisher:
 
         # wait until identity is established before dispatching
         # events, so that the role can be included in events
-        #
-        # TODO: likely need to handle the case where identity is
-        # not loaded properly rather than waiting forever and letting
-        # the pending queue fill up.
+
         # TODO: how does this work with multiple identities if assume role
         # functionality is used?
         with self.identity.initialized:
-            self.identity.initialized.wait()
+            self.identity.initialized.wait(timeout=5.0)
+
+        if self.identity.error is not None:
+            self.log(
+                "error occurred while fetching identity, err=", self.identity.error
+            )
 
         while True:
             try:
@@ -152,6 +161,17 @@ class Publisher:
         name used to build the request."""
         start = time.time()
         status_code = 0
+
+        if self.identity.role is None:
+            err = NoIdentityException(
+                "IAM Zero was unable to determine your AWS identity. Please ensure that you are running your application with valid AWS credentials."
+            )
+            # log as an error in the application we are instrumenting
+            if not self.config["quiet"]:
+                logger.error(err)
+            self._enqueue_errors(status_code, err, start, events)
+            return
+
         try:
             url = urljoin(self.url, "api/v1/events/")
             payload = []

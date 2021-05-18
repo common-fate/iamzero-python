@@ -17,12 +17,23 @@ class Identity(object):
         self.user = None
         self.role = None
         self.account = None
+        self.error = None
 
     def set(self, user: str = None, role: str = None, account: str = None):
         with self.initialized:
             self.user = user
             self.role = role
             self.account = account
+            self.initialized.notify_all()
+
+    def set_error(self, error):
+        """
+        Marks that an error was received while fetching the AWS identity.
+        This marks the Identity object as initialised, unblocking threads that were
+        waiting on it.
+        """
+        with self.initialized:
+            self.error = error
             self.initialized.notify_all()
 
 
@@ -57,8 +68,8 @@ class IdentityFetcher(object):
             logger.debug(msg, *args, **kwargs)
 
     def fetch_identity(self, access_key=None, secret_key=None, token=None):
-        if access_key is None or secret_key is None or token is None:
-            self.log("access_key, secret_key, and token must all be provided")
+        if access_key is None or secret_key is None:
+            self.log("access_key and secret_key must be provided")
             return
         self.log("requesting identity")
         self.pending.put(
@@ -76,19 +87,22 @@ class IdentityFetcher(object):
             ev = self.pending.get()
             if ev is None:
                 return
-            session = get_session()
-            sts = session.create_client(
-                "sts",
-                aws_access_key_id=ev.access_key,
-                aws_secret_access_key=ev.secret_key,
-                aws_session_token=ev.token,
-            )
-            identity = sts.get_caller_identity()
-            self.identity.set(
-                user=identity["UserId"],
-                role=identity["Arn"],
-                account=identity["Account"],
-            )
+            try:
+                session = get_session()
+                sts = session.create_client(
+                    "sts",
+                    aws_access_key_id=ev.access_key,
+                    aws_secret_access_key=ev.secret_key,
+                    aws_session_token=ev.token,
+                )
+                identity = sts.get_caller_identity()
+                self.identity.set(
+                    user=identity["UserId"],
+                    role=identity["Arn"],
+                    account=identity["Account"],
+                )
+            except Exception as e:
+                self.identity.set_error(e)
 
     def close(self):
         """call close to send all in-flight requests and shut down the
