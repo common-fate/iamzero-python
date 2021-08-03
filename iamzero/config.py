@@ -120,8 +120,9 @@ class Config(object):
         env_config = {}
         for env_var, value in os.environ.items():
             if env_var.startswith("IAMZERO_"):
-                key = env_var[8:].upper()
-                env_config[key] = self._coerce_value(key, value)
+                key = env_var[8:].lower()
+                coerced_value = self._coerce_value(key, value)
+                env_config[key] = coerced_value
         return env_config
 
     def _coerce_value(self, name, value):  # type: (str, Any) -> Any
