@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "iamzero"
-version = "0.0.5" 
+version = "0.1.0" 
 description = "iam-zero least-privilege instrumentation client for Python"
 readme = "README.md"
 homepage = "https://iamzero.dev"
