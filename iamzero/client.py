@@ -41,12 +41,21 @@ class Client(object):
         self.block_on_response = block_on_response
 
         self.log(
-            "initialized iamzero client: token=%s, url=%s",
+            "initialized iamzero client: token=%s, url=%s transport=%s",
             self.config["token"],
             self.config["url"],
+            self.config["transport"],
         )
-        if not self.config["token"]:
+        if self.config["transport"] == "http" and not self.config["token"]:
             self.log("token not set! set the token if you want to send data to iamzero")
+
+        if (
+            self.config["transport"] == "sqs"
+            and not self.config["transport_sqs_queue_url"]
+        ):
+            self.log(
+                "Warning: transport mode is 'sqs' but the transport_sqs_queue_url setting is not set. You will likely not receive any IAM Zero events."
+            )
 
     def log(self, msg, *args, **kwargs):
         if self.config["debug"]:
