@@ -132,12 +132,13 @@ class SQSTransport(Transport):
                         "DataType": "String",
                         "StringValue": self.user_agent,
                     },
-                    "x-iamzero-token": {
-                        "DataType": "String",
-                        "StringValue": self.token,
-                    },
                 },
             }
+            if self.token is not None:
+                formatted_event["MessageAttributes"]["x-iamzero-token"] = {
+                    "DataType": "String",
+                    "StringValue": self.token,
+                }
             entries.append(formatted_event)
 
         result = self.sqs.send_message_batch(

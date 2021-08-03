@@ -41,11 +41,12 @@ class Client(object):
         self.block_on_response = block_on_response
 
         self.log(
-            "initialized iamzero client: token=%s, url=%s",
+            "initialized iamzero client: token=%s, url=%s transport=%s",
             self.config["token"],
             self.config["url"],
+            self.config["transport"],
         )
-        if not self.config["token"]:
+        if not self.config["token"] and self.config["transport"] == "http":
             self.log("token not set! set the token if you want to send data to iamzero")
 
     def log(self, msg, *args, **kwargs):
