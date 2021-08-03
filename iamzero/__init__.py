@@ -4,7 +4,10 @@ from iamzero.client import Client
 from iamzero.instrumentation import *
 import os
 import atexit
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING, Type
+
+if TYPE_CHECKING:
+    import boto3
 
 # we store the iamzero client as a global to avoid initialising
 # multiple clients
@@ -20,6 +23,9 @@ def init(
     url: str = None,
     debug: bool = None,
     quiet: bool = None,
+    transport: str = None,
+    transport_custom_aws_session: Type["boto3.Session"] = None,
+    transport_sqs_queue_url: str = None,
 ):
     global _IAMZERO_CLIENT
     global _INITPID
@@ -41,6 +47,9 @@ def init(
         url=url,
         debug=debug,
         quiet=quiet,
+        transport=transport,
+        transport_custom_aws_session=transport_custom_aws_session,
+        transport_sqs_queue_url=transport_sqs_queue_url,
     )
     _IAMZERO_CLIENT = Client(config=config)
     _INITPID = pid
