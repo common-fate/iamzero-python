@@ -1,9 +1,10 @@
 from iamzero.logging import configure_root_logger
 from iamzero.config import Config
 from iamzero.identity import Identity
-from typing import List
+from typing import Any, List, Tuple
 from iamzero.event import Event
 
+from abc import ABC, abstractmethod
 import queue
 from urllib.parse import urljoin
 import gzip
@@ -26,6 +27,76 @@ class NoIdentityException(Exception):
     """
 
 
+class Transport(ABC):
+    """
+    A class which handles the actual dispatch of messages to the IAM Zero
+    server.
+
+    We support different modes of transport, such as using a public HTTPS
+    endpoint or dispatching events via AWS SQS.
+    """
+
+    @abstractmethod
+    def send(self, payload: list) -> Tuple[int, Any]:
+        """
+        Send a message.
+        Returns a tuple containing the status code and the response
+        """
+        pass
+
+
+class HTTPTransport(Transport):
+    def __init__(
+        self,
+        config: Config,
+        gzip_enabled: bool = False,
+        gzip_compression_level: int = 1,
+        proxies={},
+    ) -> None:
+        self.config = config
+        self.token = config["token"]
+        self.url = config["url"]
+        self.gzip_enabled = gzip_enabled
+        self.gzip_compression_level = gzip_compression_level
+
+        user_agent = "iamzero-python/" + VERSION
+        if self.config["user_agent_addition"]:
+            user_agent += " " + self.config["user_agent_addition"]
+
+        session = requests.Session()
+        session.headers.update({"User-Agent": user_agent})
+        if self.gzip_enabled:
+            session.headers.update({"Content-Encoding": "gzip"})
+        if proxies:
+            session.proxies.update(proxies)
+        self.session = session
+
+    def send(self, payload: list) -> Tuple[int, Any]:
+        url = urljoin(self.url, "api/v1/events/")
+        data = json.dumps(payload)
+        if self.gzip_enabled:
+            # The gzip lib works with file-like objects so we use a buffered byte stream
+            stream = io.BytesIO()
+            compressor = gzip.GzipFile(
+                fileobj=stream, mode="wb", compresslevel=self.gzip_compression_level
+            )
+            compressor.write(data.encode())
+            compressor.close()
+            data = stream.getvalue()
+            stream.close()
+        resp = self.session.post(
+            url,
+            headers={
+                "x-iamzero-token": self.token,
+                "Content-Type": "application/json",
+            },
+            data=data,
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return (resp.status_code, resp.json())
+
+
 class Publisher:
     def __init__(
         self,
@@ -43,25 +114,17 @@ class Publisher:
         self.block_on_response = block_on_response
         self.max_batch_size = config["max_batch_size"]
         self.send_frequency = config["send_frequency"]
-        self.gzip_compression_level = gzip_compression_level
-        self.gzip_enabled = gzip_enabled
-        self.url = config["url"]
         self.identity: Identity = identity
+
+        self.transport: Transport = HTTPTransport(
+            config=config,
+            gzip_enabled=gzip_enabled,
+            gzip_compression_level=gzip_compression_level,
+            proxies=proxies,
+        )
 
         if self.identity is None:
             raise Exception("Identity must be provided")
-
-        user_agent = "iamzero-python/" + VERSION
-        if self.config["user_agent_addition"]:
-            user_agent += " " + self.config["user_agent_addition"]
-
-        session = requests.Session()
-        session.headers.update({"User-Agent": user_agent})
-        if self.gzip_enabled:
-            session.headers.update({"Content-Encoding": "gzip"})
-        if proxies:
-            session.proxies.update(proxies)
-        self.session = session
 
         # pending events queue
         self.pending: queue.Queue[Event] = queue.Queue(maxsize=1000)
@@ -173,7 +236,7 @@ class Publisher:
             return
 
         try:
-            url = urljoin(self.url, "api/v1/events/")
+
             payload = []
             for ev in events:
                 event_time = ev.created_at.isoformat()
@@ -191,31 +254,10 @@ class Publisher:
                     }
                 )
 
-            data = json.dumps(payload)
-            if self.gzip_enabled:
-                # The gzip lib works with file-like objects so we use a buffered byte stream
-                stream = io.BytesIO()
-                compressor = gzip.GzipFile(
-                    fileobj=stream, mode="wb", compresslevel=self.gzip_compression_level
-                )
-                compressor.write(data.encode())
-                compressor.close()
-                data = stream.getvalue()
-                stream.close()
-            self.log("firing batch, size = %d", len(payload))
-            resp = self.session.post(
-                url,
-                headers={
-                    "x-iamzero-token": self.token,
-                    "Content-Type": "application/json",
-                },
-                data=data,
-                timeout=10.0,
-            )
-            status_code = resp.status_code
-            resp.raise_for_status()
+            status_code, response = self.transport.send(payload)
+
             # log response to the responses queue
-            self._enqueue_response(status_code, resp.json(), None, start, ev)
+            self._enqueue_response(status_code, response, None, start, ev)
 
         except Exception as e:
             # Catch all exceptions and hand them to the responses queue.
