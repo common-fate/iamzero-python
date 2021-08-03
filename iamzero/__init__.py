@@ -14,7 +14,13 @@ _INITPID = None
 WARNED_UNINITIALIZED = False
 
 
-def init(token: str = None, url: str = None, debug: bool = None, quiet: bool = None):
+def init(
+    token: str = None,
+    record: bool = None,
+    url: str = None,
+    debug: bool = None,
+    quiet: bool = None,
+):
     global _IAMZERO_CLIENT
     global _INITPID
 
@@ -29,7 +35,13 @@ def init(token: str = None, url: str = None, debug: bool = None, quiet: bool = N
             )
             _IAMZERO_CLIENT.close()
 
-    config = Config(token=token, url=url, debug=debug, quiet=quiet)
+    config = Config(
+        token=token,
+        record=record,
+        url=url,
+        debug=debug,
+        quiet=quiet,
+    )
     _IAMZERO_CLIENT = Client(config=config)
     _INITPID = pid
 

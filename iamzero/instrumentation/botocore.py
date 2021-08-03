@@ -4,17 +4,38 @@ from wrapt import wrap_function_wrapper
 
 def wrapped_api_call(wrapped, instance, args, kwargs):
     try:
+        client = iamzero.get_client()
         result = wrapped(*args, **kwargs)
+
+        if client.config["record"]:
+            # add action to queue to be dispatched
+            data = {
+                "type": "awsAction",
+                "service": instance._service_model.service_name,
+                "region": instance.meta.region_name,
+                "operation": args[0],
+                "parameters": args[1],
+            }
+            iamzero.send_event(data=data)
+
         return result
     except Exception as e:
         # add error to queue to be dispatched
+        exception_message = None
+        exception_code = None
+
+        if hasattr(e, "response"):
+            exception_message = e.response.get("Error", {}).get("Message")
+            exception_code = e.response.get("Error", {}).get("Code")
+
         data = {
+            "type": "awsError",
             "service": instance._service_model.service_name,
             "region": instance.meta.region_name,
             "operation": args[0],
             "parameters": args[1],
-            "exceptionMessage": e.response.get("Error", {}).get("Message"),
-            "exceptionCode": e.response.get("Error", {}).get("Code"),
+            "exceptionMessage": exception_message,
+            "exceptionCode": exception_code,
         }
         iamzero.send_event(data=data)
         raise

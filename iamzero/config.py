@@ -15,6 +15,7 @@ CONFIG_DEFAULT_VALUES = {
     # (e.g. if you are assuming a different profile to dispatch events via SQS)
     "transport_custom_aws_session": None,
     "transport_sqs_queue_url": None,
+    "record": False,
     "debug": False,
     "token": None,
     "quiet": False,
