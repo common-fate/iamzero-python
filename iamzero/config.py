@@ -9,6 +9,12 @@ LOGGER = logging.getLogger(__name__)
 
 CONFIG_DEFAULT_VALUES = {
     "url": "https://app.iamzero.dev",
+    # supported transports: "http", "sqs"
+    "transport": "http",
+    # a custom botocore session to use for the transport
+    # (e.g. if you are assuming a different profile to dispatch events via SQS)
+    "transport_custom_aws_session": None,
+    "transport_sqs_queue_url": None,
     "debug": False,
     "token": None,
     "quiet": False,

@@ -14,6 +14,8 @@ import threading
 import requests
 import statsd
 import time
+import boto3
+from uuid import uuid4
 
 from iamzero.version import VERSION
 
@@ -97,6 +99,56 @@ class HTTPTransport(Transport):
         return (resp.status_code, resp.json())
 
 
+class SQSTransport(Transport):
+    def __init__(
+        self,
+        config: Config,
+    ) -> None:
+        self.sqs_queue_url = config["transport_sqs_queue_url"]
+        self.token = config["token"]
+
+        user_agent = "iamzero-python/" + VERSION
+        if self.config["user_agent_addition"]:
+            user_agent += " " + self.config["user_agent_addition"]
+
+        self.user_agent = user_agent
+        # session = requests.Session()
+        # session.headers.update({"User-Agent": user_agent})
+        # if self.gzip_enabled:
+        #     session.headers.update({"Content-Encoding": "gzip"})
+        # if proxies:
+        #     session.proxies.update(proxies)
+        # self.session = session
+        if config["transport_custom_aws_session"] is not None:
+            session = config["transport_custom_aws_session"]
+        else:
+            session = boto3.Session()
+
+        self.sqs = session.client("sqs")
+
+    def send(self, payload: list) -> Tuple[int, Any]:
+        entries = []
+
+        for event in payload:
+            formatted_event = {
+                "Id": uuid4(),
+                "MessageBody": json.dumps(event),
+                "MessageAttributes": {
+                    "User-Agent": self.user_agent,
+                    "x-iamzero-token": self.token,
+                },
+            }
+            entries.append(formatted_event)
+
+        result = self.sqs.send_message_batch(
+            QueueUrl=self.sqs_queue_url, Entries=entries
+        )
+
+        # for SQS this doesn't really make sense
+        status_ok = 200
+        return (status_ok, result)
+
+
 class Publisher:
     def __init__(
         self,
@@ -116,12 +168,16 @@ class Publisher:
         self.send_frequency = config["send_frequency"]
         self.identity: Identity = identity
 
-        self.transport: Transport = HTTPTransport(
-            config=config,
-            gzip_enabled=gzip_enabled,
-            gzip_compression_level=gzip_compression_level,
-            proxies=proxies,
-        )
+        if config["transport"] == "sqs":
+            self.transport: Transport = SQSTransport(config=Config)
+        else:
+            # default to HTTP transport
+            self.transport: Transport = HTTPTransport(
+                config=config,
+                gzip_enabled=gzip_enabled,
+                gzip_compression_level=gzip_compression_level,
+                proxies=proxies,
+            )
 
         if self.identity is None:
             raise Exception("Identity must be provided")
