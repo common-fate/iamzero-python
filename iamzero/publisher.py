@@ -1,9 +1,10 @@
 from iamzero.logging import configure_root_logger
 from iamzero.config import Config
 from iamzero.identity import Identity
-from typing import List
+from typing import Any, List, Tuple
 from iamzero.event import Event
 
+from abc import ABC, abstractmethod
 import queue
 from urllib.parse import urljoin
 import gzip
@@ -13,6 +14,8 @@ import threading
 import requests
 import statsd
 import time
+import boto3
+from uuid import uuid4
 
 from iamzero.version import VERSION
 
@@ -24,6 +27,125 @@ class NoIdentityException(Exception):
     Raised when messages are attempted to be dispatched
     without an associated identity
     """
+
+
+class Transport(ABC):
+    """
+    A class which handles the actual dispatch of messages to the IAM Zero
+    server.
+
+    We support different modes of transport, such as using a public HTTPS
+    endpoint or dispatching events via AWS SQS.
+    """
+
+    @abstractmethod
+    def send(self, payload: list) -> Tuple[int, Any]:
+        """
+        Send a message.
+        Returns a tuple containing the status code and the response
+        """
+        pass
+
+
+class HTTPTransport(Transport):
+    def __init__(
+        self,
+        config: Config,
+        gzip_enabled: bool = False,
+        gzip_compression_level: int = 1,
+        proxies={},
+    ) -> None:
+        self.config = config
+        self.token = config["token"]
+        self.url = config["url"]
+        self.gzip_enabled = gzip_enabled
+        self.gzip_compression_level = gzip_compression_level
+
+        user_agent = "iamzero-python/" + VERSION
+        if self.config["user_agent_addition"]:
+            user_agent += " " + self.config["user_agent_addition"]
+
+        session = requests.Session()
+        session.headers.update({"User-Agent": user_agent})
+        if self.gzip_enabled:
+            session.headers.update({"Content-Encoding": "gzip"})
+        if proxies:
+            session.proxies.update(proxies)
+        self.session = session
+
+    def send(self, payload: list) -> Tuple[int, Any]:
+        url = urljoin(self.url, "api/v1/events/")
+        data = json.dumps(payload)
+        if self.gzip_enabled:
+            # The gzip lib works with file-like objects so we use a buffered byte stream
+            stream = io.BytesIO()
+            compressor = gzip.GzipFile(
+                fileobj=stream, mode="wb", compresslevel=self.gzip_compression_level
+            )
+            compressor.write(data.encode())
+            compressor.close()
+            data = stream.getvalue()
+            stream.close()
+        resp = self.session.post(
+            url,
+            headers={
+                "x-iamzero-token": self.token,
+                "Content-Type": "application/json",
+            },
+            data=data,
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return (resp.status_code, resp.json())
+
+
+class SQSTransport(Transport):
+    def __init__(
+        self,
+        config: Config,
+    ) -> None:
+        self.sqs_queue_url = config["transport_sqs_queue_url"]
+        self.token = config["token"]
+
+        user_agent = "iamzero-python/" + VERSION
+        if config["user_agent_addition"]:
+            user_agent += " " + config["user_agent_addition"]
+
+        self.user_agent = user_agent
+
+        if config["transport_custom_aws_session"] is not None:
+            session = config["transport_custom_aws_session"]
+        else:
+            session = boto3.Session()
+
+        self.sqs = session.client("sqs")
+
+    def send(self, payload: list) -> Tuple[int, Any]:
+        entries = []
+
+        for event in payload:
+            formatted_event = {
+                "Id": str(uuid4()),
+                "MessageBody": json.dumps(event),
+                "MessageAttributes": {
+                    "User-Agent": {
+                        "DataType": "String",
+                        "StringValue": self.user_agent,
+                    },
+                    "x-iamzero-token": {
+                        "DataType": "String",
+                        "StringValue": self.token,
+                    },
+                },
+            }
+            entries.append(formatted_event)
+
+        result = self.sqs.send_message_batch(
+            QueueUrl=self.sqs_queue_url, Entries=entries
+        )
+
+        status_code = result["ResponseMetadata"]["HTTPStatusCode"]
+        return (status_code, result)
 
 
 class Publisher:
@@ -43,25 +165,22 @@ class Publisher:
         self.block_on_response = block_on_response
         self.max_batch_size = config["max_batch_size"]
         self.send_frequency = config["send_frequency"]
-        self.gzip_compression_level = gzip_compression_level
-        self.gzip_enabled = gzip_enabled
-        self.url = config["url"]
         self.identity: Identity = identity
+        self.transport_type = config["transport"]
+
+        if config["transport"] == "sqs":
+            self.transport: Transport = SQSTransport(config=config)
+        else:
+            # default to HTTP transport
+            self.transport: Transport = HTTPTransport(
+                config=config,
+                gzip_enabled=gzip_enabled,
+                gzip_compression_level=gzip_compression_level,
+                proxies=proxies,
+            )
 
         if self.identity is None:
             raise Exception("Identity must be provided")
-
-        user_agent = "iamzero-python/" + VERSION
-        if self.config["user_agent_addition"]:
-            user_agent += " " + self.config["user_agent_addition"]
-
-        session = requests.Session()
-        session.headers.update({"User-Agent": user_agent})
-        if self.gzip_enabled:
-            session.headers.update({"Content-Encoding": "gzip"})
-        if proxies:
-            session.proxies.update(proxies)
-        self.session = session
 
         # pending events queue
         self.pending: queue.Queue[Event] = queue.Queue(maxsize=1000)
@@ -173,7 +292,7 @@ class Publisher:
             return
 
         try:
-            url = urljoin(self.url, "api/v1/events/")
+
             payload = []
             for ev in events:
                 event_time = ev.created_at.isoformat()
@@ -191,31 +310,10 @@ class Publisher:
                     }
                 )
 
-            data = json.dumps(payload)
-            if self.gzip_enabled:
-                # The gzip lib works with file-like objects so we use a buffered byte stream
-                stream = io.BytesIO()
-                compressor = gzip.GzipFile(
-                    fileobj=stream, mode="wb", compresslevel=self.gzip_compression_level
-                )
-                compressor.write(data.encode())
-                compressor.close()
-                data = stream.getvalue()
-                stream.close()
-            self.log("firing batch, size = %d", len(payload))
-            resp = self.session.post(
-                url,
-                headers={
-                    "x-iamzero-token": self.token,
-                    "Content-Type": "application/json",
-                },
-                data=data,
-                timeout=10.0,
-            )
-            status_code = resp.status_code
-            resp.raise_for_status()
+            status_code, response = self.transport.send(payload)
+
             # log response to the responses queue
-            self._enqueue_response(status_code, resp.json(), None, start, ev)
+            self._enqueue_response(status_code, response, None, start, ev)
 
         except Exception as e:
             # Catch all exceptions and hand them to the responses queue.
@@ -235,8 +333,14 @@ class Publisher:
             "metadata": metadata,
         }
 
-        if 200 <= status_code < 300 and not self.config["quiet"]:
+        if (
+            200 <= status_code < 300
+            and not self.config["quiet"]
+            and self.transport_type == "http"
+        ):
             alert_ids = body["alertIDs"]
+            # if the transport type is http, we synchronously receive the alert IDs
+            # generated by the server in the response and can show a helpful error message to the user.
             if alert_ids is not None:
                 for alert_id in alert_ids:
                     logger.info(
