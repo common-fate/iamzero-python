@@ -74,7 +74,7 @@ def send_event(data: Dict):
 
 def fetch_identity(access_key=None, secret_key=None, token=None):
     client = get_client()
-    if client:
+    if client and client.identity_fetcher:
         client.identity_fetcher.fetch_identity(
             access_key=access_key, secret_key=secret_key, token=token
         )
