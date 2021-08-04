@@ -31,7 +31,13 @@ def init(
     global _INITPID
 
     pid = os.getpid()
-    if _IAMZERO_CLIENT:
+
+    # require that the IAM Zero identity fetcher is defined
+    # if it is not defined, the library may not have been fully set up
+    # and we should initialise it again.
+    # This has occurred in AWS Lambda environments, resulting in the error:
+    # `'NoneType' object has no attribute 'fetch_identity'` being thrown upon initialisation.
+    if _IAMZERO_CLIENT and _IAMZERO_CLIENT.identity_fetcher is not None:
         if pid == _INITPID:
             _IAMZERO_CLIENT.log("iamzero is already initialised, skipping init")
             return
